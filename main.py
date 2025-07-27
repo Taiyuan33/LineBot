@@ -144,11 +144,11 @@ def can_respond():
 def validate_stock_code(stock_code):
     # 移除空白字元
     stock_code = stock_code.strip()
-    
+
     # 檢查是否為數字且長度適當（台股代碼通常是4位數字）
     if not stock_code.isdigit() or len(stock_code) != 4:
         return None
-    
+
     return stock_code
 
 # 取得股票價格的函數
@@ -158,26 +158,26 @@ def get_stock_price(stock_code):
         validated_code = validate_stock_code(stock_code)
         if not validated_code:
             return None
-            
+
         # 使用Yahoo Finance Taiwan API作為替代方案
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{validated_code}.TW"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
-        
+
         response = requests.get(url, headers=headers, timeout=10)
-        
+
         if response.status_code == 200:
             data = response.json()
-            
+
             if data.get('chart') and data['chart'].get('result') and len(data['chart']['result']) > 0:
                 result = data['chart']['result'][0]
                 meta = result.get('meta', {})
-                
+
                 # 提取股票資訊
                 current_price = meta.get('regularMarketPrice', 'N/A')
                 prev_close = meta.get('previousClose', 'N/A')
-                
+
                 # 計算漲跌
                 change = 'N/A'
                 if current_price != 'N/A' and prev_close != 'N/A':
@@ -190,18 +190,50 @@ def get_stock_price(stock_code):
                             change = f"{change_value:.2f} ({change_percent:.2f}%)"
                     except:
                         change = 'N/A'
-                
+
                 return {
                     'price': f"{current_price:.2f}" if current_price != 'N/A' else 'N/A',
                     'change': change,
                     'time': '即時'
                 }
-        
+
         return None
-        
+
     except Exception as e:
         print(f"取得股票價格時發生錯誤: {e}")
         return None
+
+def create_carousel_messages():
+    return [{
+        "type": "template",
+        "altText": "this is a carousel template",
+        "template": {
+            "type": "carousel",
+            "columns": [
+                {
+                    "title": "股票資料分析服務",
+                    "text": "請輸入欲查詢股票代碼",
+                    "actions": [
+                        {
+                            "type": "message",
+                            "label": "查看最近價格",
+                            "text": "查看最近價格"
+                        },
+                        {
+                            "type": "message",
+                            "label": "昨日收盤價",
+                            "text": "昨日收盤價"
+                        },
+                        {
+                            "type": "message",
+                            "label": "比較兩支股票",
+                            "text": "比較兩支股票"
+                        }
+                    ]
+                }
+            ]
+        }
+    }]
 
 
 # LINE Webhook 入口
@@ -218,18 +250,18 @@ def linebot():
         # 提取 replyToken 和用戶訊息
         reply_token = data['events'][0]['replyToken']
         user_id = data['events'][0]['source']['userId']
-        
+
         # 檢查訊息類型，處理貼圖等非文字訊息
         message_type = data['events'][0]['message']['type']
         if message_type != 'text':
             response = send_carousel_message(reply_token)
             return "OK", 200
-            
+
         user_message = data['events'][0]['message']['text']
 
         # 獲取用戶當前狀態
         current_state = user_states.get(user_id, {})
-        
+
         # 特殊處理：股票相關流程不受流量管控限制
         is_stock_flow = (
             user_message == "比較兩支股票" or
@@ -238,11 +270,11 @@ def linebot():
             current_state.get("state") == "waiting_second_stock" or
             current_state.get("state") == "waiting_stock_code"
         )
-        
+
         # 檢查流量管控是否可以回應（股票相關流程例外）
         if not is_stock_flow and not can_respond():
             return "Too many requests. Please wait.", 429  # 429 Too Many Requests
-        
+
         # 根據用戶的訊息回覆
         if user_message == "查看最近價格":
             # 開始價格查詢流程
@@ -251,10 +283,10 @@ def linebot():
         elif current_state.get("state") == "waiting_stock_code":
             # 收到股票代碼，開始查詢價格
             stock_code = user_message.strip()
-            
+
             # 清除用戶狀態
             user_states[user_id] = {}
-            
+
             # 驗證股票代碼格式
             validated_code = validate_stock_code(stock_code)
             if not validated_code:
@@ -262,79 +294,19 @@ def linebot():
             else:
                 # 查詢股票價格
                 stock_price = get_stock_price(validated_code)
-                
+
                 if stock_price:
                     response = send_text_message(reply_token, f"📈 股票代碼：{validated_code}\n💰 最新價格：{stock_price['price']} 元\n📊 漲跌：{stock_price['change']}\n⏰ 更新時間：{stock_price['time']}")
                 else:
                     response = send_text_message(reply_token, f"抱歉，無法取得股票代碼 {validated_code} 的價格資訊。請確認股票代碼是否正確或稍後再試。")
-            
+
             # 發送輪播訊息
-            carousel_messages = [{
-                "type": "template",
-                "altText": "this is a carousel template",
-                "template": {
-                    "type": "carousel",
-                    "columns": [
-                        {
-                            "title": "股票資料分析服務",
-                            "text": "請輸入欲查詢股票代碼",
-                            "actions": [
-                                {
-                                    "type": "message",
-                                    "label": "查看最近價格",
-                                    "text": "查看最近價格"
-                                },
-                                {
-                                    "type": "message",
-                                    "label": "昨日收盤價",
-                                    "text": "昨日收盤價"
-                                },
-                                {
-                                    "type": "message",
-                                    "label": "比較兩支股票",
-                                    "text": "比較兩支股票"
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }]
-            send_push_message(user_id, carousel_messages)
+            send_push_message(user_id, create_carousel_messages())
         elif user_message == "昨日收盤價":
             # 回覆昨日收盤價
             response = send_text_message(reply_token, "這是昨日的收盤價資料。")
             # 發送輪播訊息
-            carousel_messages = [{
-                "type": "template",
-                "altText": "this is a carousel template",
-                "template": {
-                    "type": "carousel",
-                    "columns": [
-                        {
-                            "title": "股票資料分析服務",
-                            "text": "請輸入欲查詢股票代碼",
-                            "actions": [
-                                {
-                                    "type": "message",
-                                    "label": "查看最近價格",
-                                    "text": "查看最近價格"
-                                },
-                                {
-                                    "type": "message",
-                                    "label": "昨日收盤價",
-                                    "text": "昨日收盤價"
-                                },
-                                {
-                                    "type": "message",
-                                    "label": "比較兩支股票",
-                                    "text": "比較兩支股票"
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }]
-            send_push_message(user_id, carousel_messages)
+            send_push_message(user_id, create_carousel_messages())
         elif user_message == "比較兩支股票":
             # 開始股票比較流程
             user_states[user_id] = {"state": "waiting_first_stock"}
@@ -350,55 +322,25 @@ def linebot():
             # 收到第二支股票代碼，開始AI比較
             first_stock = current_state.get("first_stock")
             second_stock = user_message.strip()
-            
+
             # 清除用戶狀態
             user_states[user_id] = {}
-            
+
             # 使用AI比較兩支股票
             comparison_query = f"請比較台股{first_stock}和{second_stock}這兩支股票，包括基本面、技術面、投資風險等方面的分析"
             google_ai_response = generate_content_from_google_ai(comparison_query)
-            
+
             print("股票比較查詢:", comparison_query)
             print("AI 回應內容:", google_ai_response)
-            
+
             if google_ai_response:
                 final_response = f"🔍 股票比較分析\n\n📊 {first_stock} vs {second_stock}\n\n{google_ai_response}"
                 response = send_text_message(reply_token, final_response)
             else:
                 response = send_text_message(reply_token, "抱歉，目前無法取得股票比較分析。請稍後再試。")
-            
+
             # 發送輪播訊息
-            carousel_messages = [{
-                "type": "template",
-                "altText": "this is a carousel template",
-                "template": {
-                    "type": "carousel",
-                    "columns": [
-                        {
-                            "title": "股票資料分析服務",
-                            "text": "請輸入欲查詢股票代碼",
-                            "actions": [
-                                {
-                                    "type": "message",
-                                    "label": "查看最近價格",
-                                    "text": "查看最近價格"
-                                },
-                                {
-                                    "type": "message",
-                                    "label": "昨日收盤價",
-                                    "text": "昨日收盤價"
-                                },
-                                {
-                                    "type": "message",
-                                    "label": "比較兩支股票",
-                                    "text": "比較兩支股票"
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }]
-            send_push_message(user_id, carousel_messages)
+            send_push_message(user_id, create_carousel_messages())
         elif "ai" in user_message.lower() and "比較兩支股票" in user_message:
             # 當用戶詢問AI相關問題時，使用 Google AI 生成內容
             google_ai_response = generate_content_from_google_ai(user_message)
@@ -408,39 +350,9 @@ def linebot():
                 response = send_text_message(reply_token, google_ai_response)
             else:
                 response = send_text_message(reply_token, "抱歉，目前無法取得 AI 回應。")
-            
+
             # 發送輪播訊息
-            carousel_messages = [{
-                "type": "template",
-                "altText": "this is a carousel template",
-                "template": {
-                    "type": "carousel",
-                    "columns": [
-                        {
-                            "title": "股票資料分析服務",
-                            "text": "請輸入欲查詢股票代碼",
-                            "actions": [
-                                {
-                                    "type": "message",
-                                    "label": "查看最近價格",
-                                    "text": "查看最近價格"
-                                },
-                                {
-                                    "type": "message",
-                                    "label": "昨日收盤價",
-                                    "text": "昨日收盤價"
-                                },
-                                {
-                                    "type": "message",
-                                    "label": "比較兩支股票",
-                                    "text": "比較兩支股票"
-                                }
-                            ]
-                        }
-                    ]
-                }
-            }]
-            send_push_message(user_id, carousel_messages)
+            send_push_message(user_id, create_carousel_messages())
         else:
             # 清除用戶狀態（如果用戶發送了其他訊息）
             if user_id in user_states:
