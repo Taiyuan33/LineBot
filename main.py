@@ -140,6 +140,51 @@ def can_respond():
     return False
 
 
+# 取得股票價格的函數
+def get_stock_price(stock_code):
+    try:
+        # 使用台灣證券交易所API
+        url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_{stock_code}.tw&json=1&delay=0"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('msgArray') and len(data['msgArray']) > 0:
+                stock_info = data['msgArray'][0]
+                
+                # 提取股票資訊
+                price = stock_info.get('z', 'N/A')  # 最新價格
+                change = stock_info.get('c', 'N/A')  # 漲跌
+                time_str = stock_info.get('t', 'N/A')  # 時間
+                
+                # 格式化漲跌資訊
+                if change != 'N/A' and change != '-':
+                    try:
+                        change_float = float(change)
+                        if change_float > 0:
+                            change = f"+{change}"
+                        change = f"{change} ({stock_info.get('ch', 'N/A')})"
+                    except:
+                        pass
+                
+                return {
+                    'price': price,
+                    'change': change,
+                    'time': time_str
+                }
+        
+        return None
+        
+    except Exception as e:
+        print(f"取得股票價格時發生錯誤: {e}")
+        return None
+
+
 # LINE Webhook 入口
 @app.route("/", methods=['GET', 'POST'])
 def linebot():
@@ -166,21 +211,39 @@ def linebot():
         # 獲取用戶當前狀態
         current_state = user_states.get(user_id, {})
         
-        # 特殊處理：股票比較流程不受流量管控限制
-        is_stock_comparison_flow = (
+        # 特殊處理：股票相關流程不受流量管控限制
+        is_stock_flow = (
             user_message == "比較兩支股票" or
+            user_message == "查看最近價格" or
             current_state.get("state") == "waiting_first_stock" or
-            current_state.get("state") == "waiting_second_stock"
+            current_state.get("state") == "waiting_second_stock" or
+            current_state.get("state") == "waiting_stock_code"
         )
         
-        # 檢查流量管控是否可以回應（股票比較流程例外）
-        if not is_stock_comparison_flow and not can_respond():
+        # 檢查流量管控是否可以回應（股票相關流程例外）
+        if not is_stock_flow and not can_respond():
             return "Too many requests. Please wait.", 429  # 429 Too Many Requests
         
         # 根據用戶的訊息回覆
         if user_message == "查看最近價格":
-            # 回覆股票最新價格，這裡你可以擴展查詢的功能
-            response = send_text_message(reply_token, "這是最新的股票價格資料。")
+            # 開始價格查詢流程
+            user_states[user_id] = {"state": "waiting_stock_code"}
+            response = send_text_message(reply_token, "請輸入股票代碼（例如：2330）")
+        elif current_state.get("state") == "waiting_stock_code":
+            # 收到股票代碼，開始查詢價格
+            stock_code = user_message.strip()
+            
+            # 清除用戶狀態
+            user_states[user_id] = {}
+            
+            # 查詢股票價格
+            stock_price = get_stock_price(stock_code)
+            
+            if stock_price:
+                response = send_text_message(reply_token, f"📈 股票代碼：{stock_code}\n💰 最新價格：{stock_price['price']} 元\n📊 漲跌：{stock_price['change']}\n⏰ 更新時間：{stock_price['time']}")
+            else:
+                response = send_text_message(reply_token, f"抱歉，無法取得股票代碼 {stock_code} 的價格資訊。請確認股票代碼是否正確。")
+            
             # 發送輪播訊息
             carousel_messages = [{
                 "type": "template",
