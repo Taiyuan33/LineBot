@@ -43,6 +43,25 @@ def send_text_message(reply_token, text):
     return response
 
 
+# 傳送推播訊息函數（用於在文字訊息後發送輪播）
+def send_push_message(user_id, messages):
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + BOT_TOKEN
+    }
+
+    payload = {
+        "to": user_id,
+        "messages": messages
+    }
+
+    # 發送 POST 請求至 LINE Messaging API
+    response = requests.post("https://api.line.me/v2/bot/message/push",
+                             headers=headers,
+                             json=payload)
+    return response
+
+
 # 傳送 Carousel Template 訊息
 def send_carousel_message(reply_token):
     headers = {
@@ -155,9 +174,73 @@ def linebot():
         if user_message == "查看最近價格":
             # 回覆股票最新價格，這裡你可以擴展查詢的功能
             response = send_text_message(reply_token, "這是最新的股票價格資料。")
+            # 發送輪播訊息
+            carousel_messages = [{
+                "type": "template",
+                "altText": "this is a carousel template",
+                "template": {
+                    "type": "carousel",
+                    "columns": [
+                        {
+                            "title": "股票資料分析服務",
+                            "text": "請輸入欲查詢股票代碼",
+                            "actions": [
+                                {
+                                    "type": "message",
+                                    "label": "查看最近價格",
+                                    "text": "查看最近價格"
+                                },
+                                {
+                                    "type": "message",
+                                    "label": "昨日收盤價",
+                                    "text": "昨日收盤價"
+                                },
+                                {
+                                    "type": "message",
+                                    "label": "比較兩支股票",
+                                    "text": "比較兩支股票"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }]
+            send_push_message(user_id, carousel_messages)
         elif user_message == "昨日收盤價":
             # 回覆昨日收盤價
             response = send_text_message(reply_token, "這是昨日的收盤價資料。")
+            # 發送輪播訊息
+            carousel_messages = [{
+                "type": "template",
+                "altText": "this is a carousel template",
+                "template": {
+                    "type": "carousel",
+                    "columns": [
+                        {
+                            "title": "股票資料分析服務",
+                            "text": "請輸入欲查詢股票代碼",
+                            "actions": [
+                                {
+                                    "type": "message",
+                                    "label": "查看最近價格",
+                                    "text": "查看最近價格"
+                                },
+                                {
+                                    "type": "message",
+                                    "label": "昨日收盤價",
+                                    "text": "昨日收盤價"
+                                },
+                                {
+                                    "type": "message",
+                                    "label": "比較兩支股票",
+                                    "text": "比較兩支股票"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }]
+            send_push_message(user_id, carousel_messages)
         elif user_message == "比較兩支股票":
             # 開始股票比較流程
             user_states[user_id] = {"state": "waiting_first_stock"}
@@ -189,6 +272,39 @@ def linebot():
                 response = send_text_message(reply_token, final_response)
             else:
                 response = send_text_message(reply_token, "抱歉，目前無法取得股票比較分析。請稍後再試。")
+            
+            # 發送輪播訊息
+            carousel_messages = [{
+                "type": "template",
+                "altText": "this is a carousel template",
+                "template": {
+                    "type": "carousel",
+                    "columns": [
+                        {
+                            "title": "股票資料分析服務",
+                            "text": "請輸入欲查詢股票代碼",
+                            "actions": [
+                                {
+                                    "type": "message",
+                                    "label": "查看最近價格",
+                                    "text": "查看最近價格"
+                                },
+                                {
+                                    "type": "message",
+                                    "label": "昨日收盤價",
+                                    "text": "昨日收盤價"
+                                },
+                                {
+                                    "type": "message",
+                                    "label": "比較兩支股票",
+                                    "text": "比較兩支股票"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }]
+            send_push_message(user_id, carousel_messages)
         elif "ai" in user_message.lower() and "比較兩支股票" in user_message:
             # 當用戶詢問AI相關問題時，使用 Google AI 生成內容
             google_ai_response = generate_content_from_google_ai(user_message)
@@ -198,6 +314,39 @@ def linebot():
                 response = send_text_message(reply_token, google_ai_response)
             else:
                 response = send_text_message(reply_token, "抱歉，目前無法取得 AI 回應。")
+            
+            # 發送輪播訊息
+            carousel_messages = [{
+                "type": "template",
+                "altText": "this is a carousel template",
+                "template": {
+                    "type": "carousel",
+                    "columns": [
+                        {
+                            "title": "股票資料分析服務",
+                            "text": "請輸入欲查詢股票代碼",
+                            "actions": [
+                                {
+                                    "type": "message",
+                                    "label": "查看最近價格",
+                                    "text": "查看最近價格"
+                                },
+                                {
+                                    "type": "message",
+                                    "label": "昨日收盤價",
+                                    "text": "昨日收盤價"
+                                },
+                                {
+                                    "type": "message",
+                                    "label": "比較兩支股票",
+                                    "text": "比較兩支股票"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }]
+            send_push_message(user_id, carousel_messages)
         else:
             # 清除用戶狀態（如果用戶發送了其他訊息）
             if user_id in user_states:
