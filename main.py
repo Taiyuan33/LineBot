@@ -15,7 +15,7 @@ genai.configure(api_key="AIzaSyA5PBFOSdPE1PCKQcERFMuSb2XoM4w8RD8"
 
 # 設定流量管理
 last_response_time = 0
-response_interval = 10  # 每 10 秒鐘可以回應一次
+response_interval = 3  # 每 3 秒鐘可以回應一次
 
 # 用戶狀態管理
 user_states = {}  # 儲存每個用戶的狀態
@@ -163,12 +163,19 @@ def linebot():
             
         user_message = data['events'][0]['message']['text']
 
-        # 檢查流量管控是否可以回應
-        if not can_respond():
-            return "Too many requests. Please wait.", 429  # 429 Too Many Requests
-
         # 獲取用戶當前狀態
         current_state = user_states.get(user_id, {})
+        
+        # 特殊處理：股票比較流程不受流量管控限制
+        is_stock_comparison_flow = (
+            user_message == "比較兩支股票" or
+            current_state.get("state") == "waiting_first_stock" or
+            current_state.get("state") == "waiting_second_stock"
+        )
+        
+        # 檢查流量管控是否可以回應（股票比較流程例外）
+        if not is_stock_comparison_flow and not can_respond():
+            return "Too many requests. Please wait.", 429  # 429 Too Many Requests
         
         # 根據用戶的訊息回覆
         if user_message == "查看最近價格":
