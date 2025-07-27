@@ -140,42 +140,61 @@ def can_respond():
     return False
 
 
+# 驗證股票代碼格式
+def validate_stock_code(stock_code):
+    # 移除空白字元
+    stock_code = stock_code.strip()
+    
+    # 檢查是否為數字且長度適當（台股代碼通常是4位數字）
+    if not stock_code.isdigit() or len(stock_code) != 4:
+        return None
+    
+    return stock_code
+
 # 取得股票價格的函數
 def get_stock_price(stock_code):
     try:
-        # 使用台灣證券交易所API
-        url = f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_{stock_code}.tw&json=1&delay=0"
+        # 驗證股票代碼
+        validated_code = validate_stock_code(stock_code)
+        if not validated_code:
+            return None
+            
+        # 使用Yahoo Finance Taiwan API作為替代方案
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{validated_code}.TW"
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
             
-            if data.get('msgArray') and len(data['msgArray']) > 0:
-                stock_info = data['msgArray'][0]
+            if data.get('chart') and data['chart'].get('result') and len(data['chart']['result']) > 0:
+                result = data['chart']['result'][0]
+                meta = result.get('meta', {})
                 
                 # 提取股票資訊
-                price = stock_info.get('z', 'N/A')  # 最新價格
-                change = stock_info.get('c', 'N/A')  # 漲跌
-                time_str = stock_info.get('t', 'N/A')  # 時間
+                current_price = meta.get('regularMarketPrice', 'N/A')
+                prev_close = meta.get('previousClose', 'N/A')
                 
-                # 格式化漲跌資訊
-                if change != 'N/A' and change != '-':
+                # 計算漲跌
+                change = 'N/A'
+                if current_price != 'N/A' and prev_close != 'N/A':
                     try:
-                        change_float = float(change)
-                        if change_float > 0:
-                            change = f"+{change}"
-                        change = f"{change} ({stock_info.get('ch', 'N/A')})"
+                        change_value = current_price - prev_close
+                        change_percent = (change_value / prev_close) * 100
+                        if change_value > 0:
+                            change = f"+{change_value:.2f} (+{change_percent:.2f}%)"
+                        else:
+                            change = f"{change_value:.2f} ({change_percent:.2f}%)"
                     except:
-                        pass
+                        change = 'N/A'
                 
                 return {
-                    'price': price,
+                    'price': f"{current_price:.2f}" if current_price != 'N/A' else 'N/A',
                     'change': change,
-                    'time': time_str
+                    'time': '即時'
                 }
         
         return None
@@ -236,13 +255,18 @@ def linebot():
             # 清除用戶狀態
             user_states[user_id] = {}
             
-            # 查詢股票價格
-            stock_price = get_stock_price(stock_code)
-            
-            if stock_price:
-                response = send_text_message(reply_token, f"📈 股票代碼：{stock_code}\n💰 最新價格：{stock_price['price']} 元\n📊 漲跌：{stock_price['change']}\n⏰ 更新時間：{stock_price['time']}")
+            # 驗證股票代碼格式
+            validated_code = validate_stock_code(stock_code)
+            if not validated_code:
+                response = send_text_message(reply_token, "請輸入正確的4位數字股票代碼（例如：2330）")
             else:
-                response = send_text_message(reply_token, f"抱歉，無法取得股票代碼 {stock_code} 的價格資訊。請確認股票代碼是否正確。")
+                # 查詢股票價格
+                stock_price = get_stock_price(validated_code)
+                
+                if stock_price:
+                    response = send_text_message(reply_token, f"📈 股票代碼：{validated_code}\n💰 最新價格：{stock_price['price']} 元\n📊 漲跌：{stock_price['change']}\n⏰ 更新時間：{stock_price['time']}")
+                else:
+                    response = send_text_message(reply_token, f"抱歉，無法取得股票代碼 {validated_code} 的價格資訊。請確認股票代碼是否正確或稍後再試。")
             
             # 發送輪播訊息
             carousel_messages = [{
