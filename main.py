@@ -17,6 +17,9 @@ genai.configure(api_key="AIzaSyA5PBFOSdPE1PCKQcERFMuSb2XoM4w8RD8"
 last_response_time = 0
 response_interval = 10  # 每 10 秒鐘可以回應一次
 
+# 用戶狀態管理
+user_states = {}  # 儲存每個用戶的狀態
+
 
 # 傳送文字訊息函數
 def send_text_message(reply_token, text):
@@ -131,12 +134,23 @@ def linebot():
 
         # 提取 replyToken 和用戶訊息
         reply_token = data['events'][0]['replyToken']
+        user_id = data['events'][0]['source']['userId']
+        
+        # 檢查訊息類型，處理貼圖等非文字訊息
+        message_type = data['events'][0]['message']['type']
+        if message_type != 'text':
+            response = send_carousel_message(reply_token)
+            return "OK", 200
+            
         user_message = data['events'][0]['message']['text']
 
         # 檢查流量管控是否可以回應
         if not can_respond():
             return "Too many requests. Please wait.", 429  # 429 Too Many Requests
 
+        # 獲取用戶當前狀態
+        current_state = user_states.get(user_id, {})
+        
         # 根據用戶的訊息回覆
         if user_message == "查看最近價格":
             # 回覆股票最新價格，這裡你可以擴展查詢的功能
@@ -144,8 +158,39 @@ def linebot():
         elif user_message == "昨日收盤價":
             # 回覆昨日收盤價
             response = send_text_message(reply_token, "這是昨日的收盤價資料。")
+        elif user_message == "比較兩支股票":
+            # 開始股票比較流程
+            user_states[user_id] = {"state": "waiting_first_stock"}
+            response = send_text_message(reply_token, "請輸入第一支股票代碼（例如：2330）")
+        elif current_state.get("state") == "waiting_first_stock":
+            # 收到第一支股票代碼
+            user_states[user_id] = {
+                "state": "waiting_second_stock",
+                "first_stock": user_message.strip()
+            }
+            response = send_text_message(reply_token, f"已記錄第一支股票：{user_message.strip()}\n\n請輸入第二支股票代碼")
+        elif current_state.get("state") == "waiting_second_stock":
+            # 收到第二支股票代碼，開始AI比較
+            first_stock = current_state.get("first_stock")
+            second_stock = user_message.strip()
+            
+            # 清除用戶狀態
+            user_states[user_id] = {}
+            
+            # 使用AI比較兩支股票
+            comparison_query = f"請比較台股{first_stock}和{second_stock}這兩支股票，包括基本面、技術面、投資風險等方面的分析"
+            google_ai_response = generate_content_from_google_ai(comparison_query)
+            
+            print("股票比較查詢:", comparison_query)
+            print("AI 回應內容:", google_ai_response)
+            
+            if google_ai_response:
+                final_response = f"🔍 股票比較分析\n\n📊 {first_stock} vs {second_stock}\n\n{google_ai_response}"
+                response = send_text_message(reply_token, final_response)
+            else:
+                response = send_text_message(reply_token, "抱歉，目前無法取得股票比較分析。請稍後再試。")
         elif "ai" in user_message.lower() and "比較兩支股票" in user_message:
-            # 當用戶詢問「如何運作 AI?」時，使用 Google AI 生成內容
+            # 當用戶詢問AI相關問題時，使用 Google AI 生成內容
             google_ai_response = generate_content_from_google_ai(user_message)
             print("使用者訊息:", user_message)
             print("AI 回應內容:", google_ai_response)
@@ -154,6 +199,9 @@ def linebot():
             else:
                 response = send_text_message(reply_token, "抱歉，目前無法取得 AI 回應。")
         else:
+            # 清除用戶狀態（如果用戶發送了其他訊息）
+            if user_id in user_states:
+                user_states[user_id] = {}
             # 如果是其他訊息，發送選單
             response = send_carousel_message(reply_token)
 
