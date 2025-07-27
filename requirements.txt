@@ -2,3 +2,5 @@ flask
 line-bot-sdk
 
 requests
+sift-stack-py
+google-generativeai
