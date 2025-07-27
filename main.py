@@ -1,11 +1,12 @@
 import requests
+import os
 from flask import Flask, request
 
 # 初始化 Flask 應用程式
 app = Flask(__name__)
 
 # 設定 LINE BOT Token
-BOT_TOKEN = '+vm6Ej+RrfiUrqXmc++mWtxV0cErb6LJYsQzpqGF/dgi/2FkMfp6hV7PpxfSkodQi0xoGBSue7ytV0EhtM+kkxyluRj+BXAJssFfyQLhRL4tS8M2MWMg9eLiz/Ls0CUtzknaEB/5k0+cUOsUAnLphgdB04t89/1O/w1cDnyilFU='
+BOT_TOKEN = os.getenv('LINE_BOT_TOKEN')
 
 
 # 傳送文字訊息函數
