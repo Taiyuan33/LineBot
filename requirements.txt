@@ -4,3 +4,5 @@ line-bot-sdk
 requests
 sift-stack-py
 google-generativeai
+yfinance
+yfinance

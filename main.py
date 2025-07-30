@@ -2,6 +2,9 @@ import requests
 from flask import Flask, request
 import google.generativeai as genai
 import time
+import yfinance as yf
+from datetime import datetime, timedelta
+import pandas as pd
 
 # 初始化 Flask 應用程式
 app = Flask(__name__)
@@ -203,6 +206,45 @@ def get_stock_price(stock_code):
         print(f"取得股票價格時發生錯誤: {e}")
         return None
 
+# 計算移動平均線的函數
+def get_moving_averages(stock_code):
+    try:
+        # 驗證股票代碼
+        validated_code = validate_stock_code(stock_code)
+        if not validated_code:
+            return None
+        
+        # 設定時間範圍（往回推半年）
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=180)
+        
+        # 格式化股票代碼
+        symbol = f"{validated_code}.TW"
+        
+        # 抓取股價資料
+        df = yf.download(symbol, start=start_date, end=end_date)
+        
+        if df.empty:
+            return None
+        
+        # 計算移動平均線 MA（5日、20日）
+        df['MA5'] = df['Close'].rolling(window=5).mean()
+        df['MA20'] = df['Close'].rolling(window=20).mean()
+        
+        # 取得最新的資料
+        latest_data = df.iloc[-1]
+        
+        return {
+            'close_price': f"{latest_data['Close']:.2f}",
+            'ma5': f"{latest_data['MA5']:.2f}" if not pd.isna(latest_data['MA5']) else 'N/A',
+            'ma20': f"{latest_data['MA20']:.2f}" if not pd.isna(latest_data['MA20']) else 'N/A',
+            'date': latest_data.name.strftime('%Y-%m-%d')
+        }
+        
+    except Exception as e:
+        print(f"計算移動平均線時發生錯誤: {e}")
+        return None
+
 def create_carousel_messages():
     return [{
         "type": "template",
@@ -221,8 +263,8 @@ def create_carousel_messages():
                         },
                         {
                             "type": "message",
-                            "label": "昨日收盤價",
-                            "text": "昨日收盤價"
+                            "label": "移動平均線",
+                            "text": "移動平均線"
                         },
                         {
                             "type": "message",
@@ -266,9 +308,11 @@ def linebot():
         is_stock_flow = (
             user_message == "比較兩支股票" or
             user_message == "查看最近價格" or
+            user_message == "移動平均線" or
             current_state.get("state") == "waiting_first_stock" or
             current_state.get("state") == "waiting_second_stock" or
-            current_state.get("state") == "waiting_stock_code"
+            current_state.get("state") == "waiting_stock_code" or
+            current_state.get("state") == "waiting_ma_stock_code"
         )
 
         # 檢查流量管控是否可以回應（股票相關流程例外）
@@ -302,9 +346,30 @@ def linebot():
 
             # 發送輪播訊息
             send_push_message(user_id, create_carousel_messages())
-        elif user_message == "昨日收盤價":
-            # 回覆昨日收盤價
-            response = send_text_message(reply_token, "這是昨日的收盤價資料。")
+        elif user_message == "移動平均線":
+            # 開始移動平均線查詢流程
+            user_states[user_id] = {"state": "waiting_ma_stock_code"}
+            response = send_text_message(reply_token, "請輸入股票代碼以查看移動平均線（例如：2330）")
+        elif current_state.get("state") == "waiting_ma_stock_code":
+            # 收到股票代碼，開始查詢移動平均線
+            stock_code = user_message.strip()
+            
+            # 清除用戶狀態
+            user_states[user_id] = {}
+            
+            # 驗證股票代碼格式
+            validated_code = validate_stock_code(stock_code)
+            if not validated_code:
+                response = send_text_message(reply_token, "請輸入正確的4位數字股票代碼（例如：2330）")
+            else:
+                # 查詢移動平均線
+                ma_data = get_moving_averages(validated_code)
+                
+                if ma_data:
+                    response = send_text_message(reply_token, f"📊 股票代碼：{validated_code}\n💰 收盤價：{ma_data['close_price']} 元\n📈 5日移動平均線：{ma_data['ma5']} 元\n📉 20日移動平均線：{ma_data['ma20']} 元\n📅 日期：{ma_data['date']}")
+                else:
+                    response = send_text_message(reply_token, f"抱歉，無法取得股票代碼 {validated_code} 的移動平均線資訊。請確認股票代碼是否正確或稍後再試。")
+            
             # 發送輪播訊息
             send_push_message(user_id, create_carousel_messages())
         elif user_message == "比較兩支股票":
