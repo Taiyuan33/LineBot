@@ -238,7 +238,7 @@ def get_moving_averages(stock_code):
             'close_price': f"{latest_data['Close']:.2f}",
             'ma5': f"{latest_data['MA5']:.2f}" if not pd.isna(latest_data['MA5']) else 'N/A',
             'ma20': f"{latest_data['MA20']:.2f}" if not pd.isna(latest_data['MA20']) else 'N/A',
-            'date': latest_data.name.strftime('%Y-%m-%d')
+            'date': str(latest_data.name.date()) if hasattr(latest_data.name, 'date') else str(latest_data.name)
         }
         
     except Exception as e:
