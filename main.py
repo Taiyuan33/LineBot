@@ -212,7 +212,7 @@ def create_carousel_messages():
             "columns": [
                 {
                     "title": "股票資料分析服務",
-                    "text": "請輸入欲查詢股票代碼",
+                    "text": "請點選服務項目，並輸入欲查詢股票代碼",
                     "actions": [
                         {
                             "type": "message",
