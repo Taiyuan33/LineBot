@@ -7,3 +7,4 @@ google-generativeai
 yfinance
 yfinance
 pandas
+numpy

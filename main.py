@@ -3,6 +3,7 @@ from flask import Flask, request
 import google.generativeai as genai
 import time
 import yfinance as yf
+import numpy as np
 from datetime import datetime, timedelta
 import pandas as pd
 
@@ -82,8 +83,8 @@ def send_carousel_message(reply_token):
                         "type": "carousel",
                         "columns": [
                           {
-                            "title": "股票資料分析服務",
-                            "text": "請點選服務項目，並輸入欲查詢股票代碼",
+                            "title": "股票基本分析",
+                            "text": "查看股票價格和技術指標",
                             "actions": [
                               {
                                 "type": "message",
@@ -92,13 +93,34 @@ def send_carousel_message(reply_token):
                               },
                               {
                                 "type": "message",
-                                "label": "昨日收盤價",
-                                "text": "昨日收盤價"
+                                "label": "移動平均線",
+                                "text": "移動平均線"
                               },
+                              {
+                                  "type": "message",
+                                  "label": "Sharpe 指數",
+                                  "text": "Sharpe 指數"
+                              }
+                            ]
+                          },
+                          {
+                            "title": "股票比較分析",
+                            "text": "比較兩支股票的表現",
+                            "actions": [
                               {
                                 "type": "message",
                                 "label": "比較兩支股票",
                                 "text": "比較兩支股票"
+                              },
+                              {
+                                "type": "message",
+                                "label": "更多功能",
+                                "text": "更多功能"
+                              },
+                              {
+                                "type": "message",
+                                "label": "使用說明",
+                                "text": "使用說明"
                               }
                             ]
                           }
@@ -206,44 +228,82 @@ def get_stock_price(stock_code):
         print(f"取得股票價格時發生錯誤: {e}")
         return None
 
-# 計算移動平均線的函數
 def get_moving_averages(stock_code):
     try:
-        # 驗證股票代碼
         validated_code = validate_stock_code(stock_code)
         if not validated_code:
-            return None
-        
-        # 設定時間範圍（往回推半年）
+            return {'error': '無效的股票代碼'}
+
         end_date = datetime.now()
         start_date = end_date - timedelta(days=180)
-        
-        # 格式化股票代碼
         symbol = f"{validated_code}.TW"
-        
-        # 抓取股價資料
-        df = yf.download(symbol, start=start_date, end=end_date)
-        
+
+        df = yf.download(symbol, start=start_date, end=end_date, auto_adjust=True)
+
         if df.empty:
-            return None
-        
-        # 計算移動平均線 MA（5日、20日）
+            return {'error': '查無資料'}
+
+        if len(df) < 20:
+            return {'error': '資料不足，無法計算移動平均線'}
+
         df['MA5'] = df['Close'].rolling(window=5).mean()
         df['MA20'] = df['Close'].rolling(window=20).mean()
-        
-        # 取得最新的資料
-        latest_data = df.iloc[-1]
-        
+        latest_data = df.tail(1).iloc[0]
+
+        # 安全轉換 function
+        def safe_float(val):
+            try:
+                if isinstance(val, pd.Series):
+                    val = val.item()
+                return float(val) if pd.notna(val) else None
+            except:
+                return None
+
         return {
-            'close_price': f"{latest_data['Close']:.2f}",
-            'ma5': f"{latest_data['MA5']:.2f}" if not pd.isna(latest_data['MA5']) else 'N/A',
-            'ma20': f"{latest_data['MA20']:.2f}" if not pd.isna(latest_data['MA20']) else 'N/A',
-            'date': str(latest_data.name.date()) if hasattr(latest_data.name, 'date') else str(latest_data.name)
+            'close_price': safe_float(latest_data['Close']),
+            'ma5': safe_float(latest_data['MA5']),
+            'ma20': safe_float(latest_data['MA20']),
+            'date': str(df.index[-1].date())
         }
-        
+
     except Exception as e:
         print(f"計算移動平均線時發生錯誤: {e}")
-        return None
+        return {'error': str(e)}
+
+def calculate_sharpe_ratio(stock_code, risk_free_rate=0.015):
+    try:
+        validated_code = validate_stock_code(stock_code)
+        if not validated_code:
+            return {'error': '無效的股票代碼'}
+
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=180)
+        symbol = f"{validated_code}.TW"
+
+        df = yf.download(symbol, start=start_date, end=end_date, auto_adjust=True)
+
+        if df.empty or len(df) < 30:
+            return {'error': '資料不足，無法計算 Sharpe 指數'}
+
+        df['Return'] = df['Close'].pct_change()
+        avg_return = df['Return'].mean()
+        std_dev = df['Return'].std()
+
+        if std_dev == 0:
+            return {'error': '波動率為 0，無法計算'}
+
+        daily_risk_free_rate = risk_free_rate / 252  # 將年利率換算為日利率
+
+        sharpe_ratio = (avg_return - daily_risk_free_rate) / std_dev
+
+        return {
+            'sharpe_ratio': round(sharpe_ratio, 4),
+            'avg_return': round(avg_return * 100, 2),
+            'std_dev': round(std_dev * 100, 2)
+        }
+
+    except Exception as e:
+        return {'error': str(e)}
 
 def create_carousel_messages():
     return [{
@@ -253,8 +313,8 @@ def create_carousel_messages():
             "type": "carousel",
             "columns": [
                 {
-                    "title": "股票資料分析服務",
-                    "text": "請點選服務項目，並輸入欲查詢股票代碼",
+                    "title": "股票基本分析",
+                    "text": "查看股票價格和技術指標",
                     "actions": [
                         {
                             "type": "message",
@@ -267,9 +327,30 @@ def create_carousel_messages():
                             "text": "移動平均線"
                         },
                         {
+                          "type": "message",
+                          "label": "Sharpe 指數",
+                          "text": "Sharpe 指數"
+                        }
+                    ]
+                },
+                {
+                    "title": "股票比較分析",
+                    "text": "比較兩支股票的表現",
+                    "actions": [
+                        {
                             "type": "message",
                             "label": "比較兩支股票",
                             "text": "比較兩支股票"
+                        },
+                        {
+                            "type": "message",
+                            "label": "更多功能",
+                            "text": "更多功能"
+                        },
+                        {
+                            "type": "message",
+                            "label": "使用說明",
+                            "text": "使用說明"
                         }
                     ]
                 }
@@ -309,10 +390,12 @@ def linebot():
             user_message == "比較兩支股票" or
             user_message == "查看最近價格" or
             user_message == "移動平均線" or
+            user_message == "Sharpe 指數" or
             current_state.get("state") == "waiting_first_stock" or
             current_state.get("state") == "waiting_second_stock" or
             current_state.get("state") == "waiting_stock_code" or
-            current_state.get("state") == "waiting_ma_stock_code"
+            current_state.get("state") == "waiting_ma_stock_code" or
+            current_state.get("state") == "waiting_sharpe_stock_code"
         )
 
         # 檢查流量管控是否可以回應（股票相關流程例外）
@@ -353,10 +436,10 @@ def linebot():
         elif current_state.get("state") == "waiting_ma_stock_code":
             # 收到股票代碼，開始查詢移動平均線
             stock_code = user_message.strip()
-            
+
             # 清除用戶狀態
             user_states[user_id] = {}
-            
+
             # 驗證股票代碼格式
             validated_code = validate_stock_code(stock_code)
             if not validated_code:
@@ -364,14 +447,56 @@ def linebot():
             else:
                 # 查詢移動平均線
                 ma_data = get_moving_averages(validated_code)
-                
-                if ma_data:
-                    response = send_text_message(reply_token, f"📊 股票代碼：{validated_code}\n💰 收盤價：{ma_data['close_price']} 元\n📈 5日移動平均線：{ma_data['ma5']} 元\n📉 20日移動平均線：{ma_data['ma20']} 元\n📅 日期：{ma_data['date']}")
+
+                if isinstance(ma_data, dict) and all(k in ma_data for k in ['close_price', 'ma5', 'ma20', 'date']):
+                    close_price = f"{ma_data['close_price']:,.2f}"
+                    ma5 = f"{ma_data['ma5']:,.2f}"
+                    ma20 = f"{ma_data['ma20']:,.2f}"
+                    date = ma_data['date']
+
+                    msg = (
+                        f"📊 股票代碼：{validated_code}\n"
+                        f"💰 收盤價：{close_price} 元\n"
+                        f"📈 5日移動平均線：{ma5} 元\n"
+                        f"📉 20日移動平均線：{ma20} 元\n"
+                        f"📅 日期：{date}"
+                    )
+                    response = send_text_message(reply_token, msg)
                 else:
-                    response = send_text_message(reply_token, f"抱歉，無法取得股票代碼 {validated_code} 的移動平均線資訊。請確認股票代碼是否正確或稍後再試。")
-            
+                    err_msg = ma_data.get('error', '無法取得資料')
+                    response = send_text_message(
+                        reply_token,
+                        f"抱歉，無法取得股票代碼 {validated_code} 的移動平均線資訊。\n原因：{err_msg}。"
+                    )
+
             # 發送輪播訊息
             send_push_message(user_id, create_carousel_messages())
+
+        elif user_message == "Sharpe 指數":
+            user_states[user_id] = {"state": "waiting_sharpe_stock_code"}
+            response = send_text_message(reply_token, "請輸入股票代碼以計算 Sharpe 指數（例如：2330）")
+
+        elif current_state.get("state") == "waiting_sharpe_stock_code":
+            stock_code = user_message.strip()
+            user_states[user_id] = {}
+
+            validated_code = validate_stock_code(stock_code)
+            if not validated_code:
+                response = send_text_message(reply_token, "請輸入正確的4位數字股票代碼（例如：2330）")
+            else:
+                result = calculate_sharpe_ratio(validated_code)
+                if "sharpe_ratio" in result:
+                    response = send_text_message(reply_token,
+                        f"📊 股票代碼：{validated_code}\n"
+                        f"📈 平均日報酬率：{result['avg_return']}%\n"
+                        f"📉 報酬標準差（波動）：{result['std_dev']}%\n"
+                        f"✅ Sharpe 指數：約 {result['sharpe_ratio']}"
+                    )
+                else:
+                    response = send_text_message(reply_token, f"無法計算 Sharpe 指數。\n原因：{result.get('error', '未知錯誤')}")
+
+            send_push_message(user_id, create_carousel_messages())
+
         elif user_message == "比較兩支股票":
             # 開始股票比較流程
             user_states[user_id] = {"state": "waiting_first_stock"}
@@ -403,6 +528,31 @@ def linebot():
                 response = send_text_message(reply_token, final_response)
             else:
                 response = send_text_message(reply_token, "抱歉，目前無法取得股票比較分析。請稍後再試。")
+
+            # 發送輪播訊息
+            send_push_message(user_id, create_carousel_messages())
+        elif user_message == "更多功能":
+            response = send_text_message(reply_token, 
+                "🚀 更多功能開發中...\n\n"
+                "目前支援的功能：\n"
+                "• 查看股票最近價格\n"
+                "• 計算移動平均線\n"
+                "• 計算 Sharpe 指數\n"
+                "• 比較兩支股票\n\n"
+                "敬請期待更多功能！")
+
+            # 發送輪播訊息
+            send_push_message(user_id, create_carousel_messages())
+        elif user_message == "使用說明":
+            response = send_text_message(reply_token, 
+                "📖 使用說明\n\n"
+                "1️⃣ 選擇您想要的功能\n"
+                "2️⃣ 輸入4位數字股票代碼（例如：2330）\n"
+                "3️⃣ 系統會為您分析並提供結果\n\n"
+                "💡 小提醒：\n"
+                "• 股票代碼必須是4位數字\n"
+                "• 目前支援台股查詢\n"
+                "• 資料來源：Yahoo Finance")
 
             # 發送輪播訊息
             send_push_message(user_id, create_carousel_messages())
